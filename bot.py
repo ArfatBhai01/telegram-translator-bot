@@ -8,10 +8,9 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes
 )
-from deep_translator import GoogleTranslator
 from lingua import Language, LanguageDetectorBuilder
 from languages import LANGUAGES, resolve_lang, get_name
-import translators as ts
+from groq import Groq
 
 # 1. Setup
 load_dotenv()
@@ -20,16 +19,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 
-groq_client = None
-if GROQ_KEY:
-    try:
-        from groq import Groq
-        groq_client = Groq(api_key=GROQ_KEY)
-        print("✅ Groq AI loaded successfully!")
-    except Exception as e:
-        print(f"❌ Groq failed to load: {e}")
+if not GROQ_KEY:
+    print("❌ ERROR: GROQ_API_KEY is missing in Render Environment Variables!")
+    groq_client = None
+else:
+    groq_client = Groq(api_key=GROQ_KEY)
+    print("✅ Groq AI loaded successfully!")
 
-# Initialize the smart language detector
+# Initialize the smart language detector (Low Memory Mode)
 detector = LanguageDetectorBuilder.from_all_languages().with_low_accuracy_mode().build()
 
 # 2. Translation Engine
@@ -48,36 +45,19 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
     if source_code == target_code:
         return text
     
-    # ENGINE 1: AI (Best for Cloud Servers, never blocked)
-    if groq_client:
-        try:
-            resp = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": f"Translate this to {get_name(target_code)}. Reply ONLY with the translation:\n{text}"}],
-                temperature=0.2
-            )
-            return f"🤖 {resp.choices[0].message.content.strip()}"
-        except Exception as e:
-            logging.error(f"AI failed: {e}")
+    if not groq_client:
+        return "⚠️ Error: AI is not configured. Please contact @Lustcoded."
 
-    # ENGINE 2: Bing (Backup)
     try:
-        t_code = target_code.lower()
-        if t_code == "zh-cn": t_code = "zh-Hans"
-        if t_code == "zh-tw": t_code = "zh-Hant"
-        result = ts.translate_text(text, translator='bing', from_language='auto', to_language=t_code)
-        if result: return result
-    except Exception:
-        pass
-        
-    # ENGINE 3: Google (Last resort)
-    try:
-        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
-        if result: return result
-    except Exception:
-        pass
-
-    return "⚠️ Translation failed. Please try again in a few seconds."
+        resp = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": f"Translate this text to {get_name(target_code)}. Reply ONLY with the translation, no explanations:\n{text}"}],
+            temperature=0.2
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"AI failed: {e}")
+        return f"⚠️ AI Error: {str(e)[:50]}"
 
 # 3. Handlers
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -194,7 +174,7 @@ def main():
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🚀 Bot is running safely with AI & Smart Detector!")
+    print("🚀 Bot is running on 100% AI Engine!")
     app.run_polling()
 
 if __name__ == "__main__":
