@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
 from telegram.ext import (
@@ -18,7 +20,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://telegram-translator-bot-njsm.onrender.com")
 
 groq_client = None
 if GROQ_KEY:
@@ -42,14 +43,12 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
     if source_code == target_code:
         return text
     
-    # Engine 1: Google
     try:
         result = GoogleTranslator(source=source_code, target=target_code).translate(text)
         if result: return result
     except Exception:
         pass
         
-    # Engine 2: Bing (Backup)
     try:
         t_code = target_code.lower()
         if t_code == "zh-cn": t_code = "zh-Hans"
@@ -59,7 +58,6 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
     except Exception:
         pass
 
-    # Engine 3: Groq AI (Ultimate Backup)
     if groq_client:
         try:
             resp = groq_client.chat.completions.create(
@@ -152,7 +150,7 @@ def get_settings(chat_id):
         user_settings[chat_id] = DEFAULT_SETTINGS.copy()
     return user_settings[chat_id]
 
-# 5. Run Bot
+# 5. Run Bot & Web Server
 async def post_init(application: Application) -> None:
     commands = [
         BotCommand("start", "Show welcome message"),
@@ -162,11 +160,26 @@ async def post_init(application: Application) -> None:
     ]
     await application.bot.set_my_commands(commands)
 
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    httpd = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    httpd.serve_forever()
+
 def main():
     if not BOT_TOKEN:
         print("❌ ERROR: BOT_TOKEN is missing in .env file!")
         return
-        
+    
+    # Start the web server in a background thread
+    threading.Thread(target=run_web_server, daemon=True).start()
+    
+    # Start the bot
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     
     app.add_handler(CommandHandler("start", start))
@@ -175,14 +188,8 @@ def main():
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🚀 Bot is starting webhook...")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080)),
-        webhook_url=f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}",
-        url_path=BOT_TOKEN,
-        bootstrap_retries=5,
-    )
+    print("🚀 Bot is running safely with Polling and Free Web Server!")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
