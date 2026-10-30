@@ -18,6 +18,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
+# Render provides the URL automatically; we will use a fallback if it's missing
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://telegram-translator-bot-njsm.onrender.com")
 
 groq_client = None
 if GROQ_KEY:
@@ -135,16 +137,13 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     src_lang = detect_lang(text)
     target_lang = settings["my_lang"]
 
-    # Don't translate if it's already the target language
     if src_lang == target_lang: return
 
-    # Show "typing..." while translating
     await ctx.bot.send_chat_action(chat_id=chat_id, action="typing")
     
     translated = translate_text(text, target_lang, src_lang)
     reply_text = f"🌐 *Translation* ({get_name(src_lang)} → {get_name(target_lang)})\n\n{translated}"
 
-    # Reply directly to the user's message (works in private and groups)
     await update.message.reply_text(
         reply_text, 
         parse_mode="Markdown", 
@@ -162,7 +161,6 @@ def get_settings(chat_id):
 
 # 5. Run Bot
 async def post_init(application: Application) -> None:
-    # This creates the blue "/" Menu
     commands = [
         BotCommand("start", "Show welcome message"),
         BotCommand("set", "Change target language"),
@@ -176,12 +174,7 @@ def main():
         print("❌ ERROR: BOT_TOKEN is missing in .env file!")
         return
         
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .post_init(post_init)
-        .build()
-    )
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
@@ -189,8 +182,14 @@ def main():
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🚀 Bot is running with Developer Contact info!")
-    app.run_polling()
+    print("🚀 Bot is starting webhook...")
+    # This is the key change: it runs a web server for the bot itself
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080)),
+        webhook_url=f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}",
+        url_path=BOT_TOKEN
+    )
 
 if __name__ == "__main__":
     main()
