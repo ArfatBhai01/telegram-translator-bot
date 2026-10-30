@@ -175,7 +175,13 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("🚀 Bot is running on 100% AI Engine!")
-    app.run_polling(timeout=60)
+        # This tells the library to not crash the whole app on a timeout
+    # and to try again after a short delay.
+    app.run_polling(
+        close_loop=False,
+        bootstrap_retries=5,
+        read_timeout=60
+    )
 
 if __name__ == "__main__":
     main()
