@@ -30,7 +30,7 @@ if GROQ_KEY:
         print(f"❌ Groq failed to load: {e}")
 
 # Initialize the smart language detector
-detector = LanguageDetectorBuilder.from_all_languages().build()
+detector = LanguageDetectorBuilder.from_all_languages().with_low_accuracy_mode().build()
 
 # 2. Translation Engine
 def detect_lang(text: str) -> str:
