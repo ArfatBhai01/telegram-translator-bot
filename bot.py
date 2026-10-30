@@ -182,7 +182,6 @@ def main():
         webhook_url=f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}",
         url_path=BOT_TOKEN,
         bootstrap_retries=5,
-        connect_timeout=30.0,
     )
 
 if __name__ == "__main__":
