@@ -9,13 +9,12 @@ from telegram.ext import (
     filters, ContextTypes
 )
 from deep_translator import GoogleTranslator
-from langdetect import detect, DetectorFactory
+from lingua import Language, LanguageDetectorBuilder
 from languages import LANGUAGES, resolve_lang, get_name
 import translators as ts
 
 # 1. Setup
 load_dotenv()
-DetectorFactory.seed = 0
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -26,13 +25,19 @@ if GROQ_KEY:
     try:
         from groq import Groq
         groq_client = Groq(api_key=GROQ_KEY)
-    except Exception:
-        pass
+        print("✅ Groq AI loaded successfully!")
+    except Exception as e:
+        print(f"❌ Groq failed to load: {e}")
+
+# Initialize the smart language detector
+detector = LanguageDetectorBuilder.from_all_languages().build()
 
 # 2. Translation Engine
 def detect_lang(text: str) -> str:
     try:
-        code = detect(text)
+        lang = detector.detect_language_of(text)
+        if not lang: return "en"
+        code = lang.iso_code_639_1.name.lower()
         if code in ("zh-cn", "zh"): return "zh-CN"
         if code == "zh-tw": return "zh-TW"
         return code if code in LANGUAGES else "en"
@@ -43,21 +48,7 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
     if source_code == target_code:
         return text
     
-    try:
-        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
-        if result: return result
-    except Exception:
-        pass
-        
-    try:
-        t_code = target_code.lower()
-        if t_code == "zh-cn": t_code = "zh-Hans"
-        if t_code == "zh-tw": t_code = "zh-Hant"
-        result = ts.translate_text(text, translator='bing', from_language='auto', to_language=t_code)
-        if result: return result
-    except Exception:
-        pass
-
+    # ENGINE 1: AI (Best for Cloud Servers, never blocked)
     if groq_client:
         try:
             resp = groq_client.chat.completions.create(
@@ -66,8 +57,25 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
                 temperature=0.2
             )
             return f"🤖 {resp.choices[0].message.content.strip()}"
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"AI failed: {e}")
+
+    # ENGINE 2: Bing (Backup)
+    try:
+        t_code = target_code.lower()
+        if t_code == "zh-cn": t_code = "zh-Hans"
+        if t_code == "zh-tw": t_code = "zh-Hant"
+        result = ts.translate_text(text, translator='bing', from_language='auto', to_language=t_code)
+        if result: return result
+    except Exception:
+        pass
+        
+    # ENGINE 3: Google (Last resort)
+    try:
+        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
+        if result: return result
+    except Exception:
+        pass
 
     return "⚠️ Translation failed. Please try again in a few seconds."
 
@@ -75,9 +83,9 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
         "🔥 *AI Translation Bot*\n\n"
-        "I automatically translate every message in this chat into **English**.\n\n"
-        "Need another language? Use `/set <language>` (e.g., `/set korean`).\n\n"
-        "💡 *Need help or have questions?*\n"
+        "I automatically translate every message in this chat.\n\n"
+        "Use `/set <language>` to change the language (e.g., `/set korean`).\n\n"
+        "💡 *Need help?*\n"
         "Contact the developer: **@Lustcoded**"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
@@ -86,8 +94,8 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
         "ℹ️ *Help Menu*\n\n"
         "• `/start` - Welcome message\n"
-        "• `/set <lang>` - Change target language (e.g., `/set spanish`)\n"
-        "• `/langs` - See all 130+ supported languages\n\n"
+        "• `/set <lang>` - Change target language\n"
+        "• `/langs` - See all 130+ languages\n\n"
         "💡 *Need help?*\n"
         "Contact the developer: **@Lustcoded**"
     )
@@ -173,13 +181,11 @@ def run_web_server():
 
 def main():
     if not BOT_TOKEN:
-        print("❌ ERROR: BOT_TOKEN is missing in .env file!")
+        print("❌ ERROR: BOT_TOKEN is missing!")
         return
     
-    # Start the web server in a background thread
     threading.Thread(target=run_web_server, daemon=True).start()
     
-    # Start the bot
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     
     app.add_handler(CommandHandler("start", start))
@@ -188,7 +194,7 @@ def main():
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🚀 Bot is running safely with Polling and Free Web Server!")
+    print("🚀 Bot is running safely with AI & Smart Detector!")
     app.run_polling()
 
 if __name__ == "__main__":
