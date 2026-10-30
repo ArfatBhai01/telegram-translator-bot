@@ -18,7 +18,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-# Render provides the URL automatically; we will use a fallback if it's missing
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "https://telegram-translator-bot-njsm.onrender.com")
 
 groq_client = None
@@ -91,7 +90,6 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• `/start` - Welcome message\n"
         "• `/set <lang>` - Change target language (e.g., `/set spanish`)\n"
         "• `/langs` - See all 130+ supported languages\n\n"
-        "To use me in a group, add me as an Admin or turn off my privacy mode in @BotFather.\n\n"
         "💡 *Need help?*\n"
         "Contact the developer: **@Lustcoded**"
     )
@@ -99,19 +97,14 @@ async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def set_lang_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not ctx.args:
-        return await update.message.reply_text(
-            "Usage: `/set <language>`\ne.g. `/set korean`\nUse `/langs` to see all 130+ languages.", 
-            parse_mode="Markdown"
-        )
+        return await update.message.reply_text("Usage: `/set <language>`\ne.g. `/set korean`", parse_mode="Markdown")
     
     target = resolve_lang(" ".join(ctx.args))
     if not target:
         return await update.message.reply_text("❌ Unknown language. Use /langs to see the list.")
         
-    # Save language permanently for this group/chat
     settings = get_settings(update.effective_chat.id)
     settings["my_lang"] = target
-    
     await update.message.reply_text(f"✅ Done! I will now automatically translate all messages to *{get_name(target)}*.", parse_mode="Markdown")
 
 async def langs_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -183,12 +176,13 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("🚀 Bot is starting webhook...")
-    # This is the key change: it runs a web server for the bot itself
     app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get("PORT", 8080)),
         webhook_url=f"{RENDER_EXTERNAL_URL}/{BOT_TOKEN}",
-        url_path=BOT_TOKEN
+        url_path=BOT_TOKEN,
+        bootstrap_retries=5,
+        connect_timeout=30.0,
     )
 
 if __name__ == "__main__":
