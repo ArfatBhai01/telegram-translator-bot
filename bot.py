@@ -49,8 +49,9 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return "⚠️ Error: AI is not configured. Please contact @Lustcoded."
 
     try:
+        # Using the current free Groq model
         resp = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": f"Translate this text to {get_name(target_code)}. Reply ONLY with the translation, no explanations:\n{text}"}],
             temperature=0.2
         )
@@ -164,6 +165,7 @@ def main():
         print("❌ ERROR: BOT_TOKEN is missing!")
         return
     
+    # Note the capital "True"
     threading.Thread(target=run_web_server, daemon=True).start()
     
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
@@ -175,8 +177,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("🚀 Bot is running on 100% AI Engine!")
-        # This tells the library to not crash the whole app on a timeout
-    # and to try again after a short delay.
+    
+    # The ultimate anti-crash fix
     app.run_polling(
         close_loop=False,
         bootstrap_retries=5,
