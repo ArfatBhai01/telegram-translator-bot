@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 from langdetect import detect, DetectorFactory
 from languages import LANGUAGES, resolve_lang, get_name
-from deep_translator import GoogleTranslator
+import translators as ts
 
 # 1. Setup
 load_dotenv()
@@ -36,12 +36,22 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     try:
-        # deep-translator directly calls Google Translate (No filters)
-        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
+        # translators library automatically handles all language codes
+        t_code = target_code.lower()
+        if t_code == "zh-cn": t_code = "zh"
+        if t_code == "zh-tw": t_code = "zh-TW"
+        
+        result = ts.translate_text(text, translator='google', from_language=source_code, to_language=t_code)
         return result
     except Exception as e:
-        logging.error(f"Translation failed: {e}")
-        return "⚠️ Translation failed. Please try again."
+        logging.error(f"Google failed: {e}")
+        # If Google is blocked, try Bing as backup
+        try:
+            result = ts.translate_text(text, translator='bing', from_language=source_code, to_language=t_code)
+            return result
+        except Exception as e2:
+            logging.error(f"Bing failed: {e2}")
+            return "⚠️ Translation failed. Please try again."
 
 # 3. Handlers
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -112,7 +122,7 @@ def main():
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Bot is running with deep-translator (Uncensored)!")
+    print("🚀 Bot is running with translators library!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
