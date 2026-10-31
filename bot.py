@@ -1,6 +1,7 @@
 import os
 import logging
 import threading
+import requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
@@ -10,7 +11,6 @@ from telegram.ext import (
 )
 from langdetect import detect, DetectorFactory
 from languages import LANGUAGES, resolve_lang, get_name
-from deep_translator import GoogleTranslator
 
 # 1. Setup
 load_dotenv()
@@ -36,11 +36,17 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     try:
-        # deep-translator perfectly handles Chinese and all other languages
-        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
-        return result
+        # MyMemory uses standard language codes (e.g., en, ko, zh-CN)
+        url = f"https://api.mymemory.translated.net/get?q={requests.utils.quote(text)}&langpair={source_code}|{target_code}"
+        response = requests.get(url, timeout=15)
+        data = response.json()
+        
+        if "responseData" in data and data["responseData"]["translatedText"]:
+            return data["responseData"]["translatedText"]
+        else:
+            return "⚠️ Translation failed."
     except Exception as e:
-        logging.error(f"Google failed: {e}")
+        logging.error(f"MyMemory failed: {e}")
         return "⚠️ Translation failed. Please try again."
 
 # 3. Handlers
@@ -112,7 +118,7 @@ def main():
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Bot is running with Google Translate (Uncensored)!")
+    print("🚀 Bot is running with MyMemory!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
