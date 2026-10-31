@@ -3,3 +3,4 @@ lingua-language-detector==2.2.0
 python-dotenv==1.0.1
 groq==0.13.0
 httpx==0.27.2
+openai==1.58.1
