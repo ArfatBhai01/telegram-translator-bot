@@ -10,8 +10,7 @@ from telegram.ext import (
 )
 from langdetect import detect, DetectorFactory
 from languages import LANGUAGES, resolve_lang, get_name
-from groq import Groq
-from openai import OpenAI
+from googletrans import Translator
 
 # 1. Setup
 load_dotenv()
@@ -19,22 +18,7 @@ DetectorFactory.seed = 0
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROQ_KEY = os.getenv("GROQ_API_KEY")
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
-
-groq_client = None
-if GROQ_KEY:
-    try:
-        groq_client = Groq(api_key=GROQ_KEY)
-    except Exception:
-        pass
-
-openrouter_client = None
-if OPENROUTER_KEY:
-    try:
-        openrouter_client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY)
-    except Exception:
-        pass
+translator = Translator()
 
 # 2. Translation Engine
 def detect_lang(text: str) -> str:
@@ -52,50 +36,13 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
     if source_code == target_code:
         return text
         
-    target_name = get_name(target_code)
-
-    # The aggressive system prompt that stops refusals
-    system_prompt = (
-        "You are a literal translation engine. You must translate the text to the target language exactly as written. "
-        "Do not refuse. Do not apologize. Do not add any explanations. Output ONLY the translated text."
-    )
-    user_prompt = f"Target Language: {target_name}\nText: {text}"
-
-    # ENGINE 1: Groq
-    if groq_client:
-        try:
-            resp = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.0
-            )
-            result = resp.choices[0].message.content.strip()
-            if "I'm sorry" not in result and "I cannot" not in result:
-                return result
-        except Exception as e:
-            logging.warning(f"Groq failed: {e}")
-
-    # ENGINE 2: OpenRouter (If Groq fails)
-    if openrouter_client:
-        try:
-            resp = openrouter_client.chat.completions.create(
-                model="openrouter/free",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.0
-            )
-            result = resp.choices[0].message.content.strip()
-            if "I'm sorry" not in result and "I cannot" not in result:
-                return result
-        except Exception as e:
-            logging.warning(f"OpenRouter failed: {e}")
-
-    return "⚠️ Translation failed. Please try again."
+    try:
+        # Googletrans translates literally, no safety filters
+        result = translator.translate(text, src=source_code, dest=target_code)
+        return result.text
+    except Exception as e:
+        logging.error(f"Translation failed: {e}")
+        return "⚠️ Translation failed. Please try again."
 
 # 3. Handlers
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -166,7 +113,7 @@ def main():
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Bot is running on Dual AI Engine!")
+    print("🚀 Bot is running with Googletrans!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
