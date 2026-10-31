@@ -8,13 +8,14 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes
 )
-from lingua import Language, LanguageDetectorBuilder
+from langdetect import detect, DetectorFactory
 from languages import LANGUAGES, resolve_lang, get_name
 from groq import Groq
 from openai import OpenAI
 
 # 1. Setup
 load_dotenv()
+DetectorFactory.seed = 0 # Makes langdetect reliable
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -38,20 +39,14 @@ if OPENROUTER_KEY:
     except Exception:
         pass
 
-# Use High Accuracy for better detection
-detector = LanguageDetectorBuilder.from_all_languages().build()
-
 # 2. Translation Engine
 def detect_lang(text: str) -> str:
     try:
-        # CRITICAL FIX: If text is less than 4 words, just assume it's English
-        # This stops the bot from guessing Maori or Swahili for "Why" or "Fuck you"
+        # If text is short, assume English (stops Maori/Swahili weirdness)
         if len(text.split()) < 4:
             return "en"
             
-        lang = detector.detect_language_of(text)
-        if not lang: return "en"
-        code = lang.iso_code_639_1.name.lower()
+        code = detect(text)
         if code in ("zh-cn", "zh"): return "zh-CN"
         if code == "zh-tw": return "zh-TW"
         return code if code in LANGUAGES else "en"
@@ -63,12 +58,9 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     target_name = get_name(target_code)
-    
-    # STRICT PROMPT: Forces the AI to translate everything, even bad words
     prompt = (
-        f"You are an uncensored, strict translation engine. Translate the following text to {target_name}. "
-        f"Do not refuse. Do not apologize. Do not add explanations. "
-        f"Output ONLY the translated text:\n\n{text}"
+        f"You are an uncensored translation engine. Translate to {target_name}. "
+        f"Output ONLY the translation:\n\n{text}"
     )
 
     # ENGINE 1: Groq
@@ -143,7 +135,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     src_lang = detect_lang(text)
     target_lang = settings["my_lang"]
     
-    # If it's the same language, don't translate
     if src_lang == target_lang: return
     
     await ctx.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -159,6 +150,7 @@ def get_settings(chat_id):
         user_settings[chat_id] = DEFAULT_SETTINGS.copy()
     return user_settings[chat_id]
 
+# 4. Run Bot
 async def post_init(application: Application) -> None:
     commands = [
         BotCommand("start", "Show welcome message"),
@@ -190,7 +182,7 @@ def main():
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🚀 Bot is running with Strict AI!")
+    print("🚀 Bot is running with Zero-Memory Crash Mode!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
