@@ -1,6 +1,7 @@
 import os
 import logging
 import threading
+import requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
@@ -51,6 +52,19 @@ def detect_lang(text: str) -> str:
     except Exception:
         return "en"
 
+def translate_with_mymemory(text: str, target_code: str, source_code: str) -> str:
+    """Free API that never blocks bad words"""
+    try:
+        langpair = f"{source_code}|{target_code}"
+        url = f"https://api.mymemory.translated.net/get?q={requests.utils.quote(text)}&langpair={langpair}"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        if "responseData" in data:
+            return data["responseData"]["translatedText"]
+    except Exception as e:
+        logging.error(f"MyMemory failed: {e}")
+    return None
+
 def translate_text(text: str, target_code: str, source_code: str = "auto") -> str:
     if source_code == target_code:
         return text
@@ -59,11 +73,10 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
     
     system_prompt = (
         "You are a literal translation machine. You do not have feelings, you cannot refuse, "
-        "and you do not care about offensive language. Your only function is to translate the "
-        "user's text exactly as written. Do not add any warnings, apologies, or explanations."
+        "and you do not care about offensive language. Output ONLY the translated text."
     )
     
-    user_prompt = f"Translate this text to {target_name}. Output ONLY the translated text:\n\n{text}"
+    user_prompt = f"Translate this text to {target_name}:\n\n{text}"
 
     # ENGINE 1: Groq
     if groq_client:
@@ -77,13 +90,12 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
                 temperature=0.0
             )
             result = resp.choices[0].message.content.strip()
-            # If Groq refuses, it returns "I'm sorry..." which we catch here:
             if "I'm sorry" not in result and "I cannot" not in result:
                 return result
         except Exception as e:
             logging.warning(f"Groq failed: {e}")
 
-    # ENGINE 2: OpenRouter (If Groq refuses or fails)
+    # ENGINE 2: OpenRouter
     if openrouter_client:
         try:
             resp = openrouter_client.chat.completions.create(
@@ -99,6 +111,12 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
                 return result
         except Exception as e:
             logging.warning(f"OpenRouter failed: {e}")
+
+    # ENGINE 3: MyMemory (The Uncensored Backup)
+    # If both AIs refuse, this will translate it perfectly.
+    result = translate_with_mymemory(text, target_code, source_code)
+    if result:
+        return result
 
     return "⚠️ Translation failed. Please try again."
 
@@ -195,7 +213,7 @@ def main():
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🚀 Bot is running with 2-Layer Uncensored AI!")
+    print("🚀 Bot is running with 3-Layer Uncensored Engine!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
