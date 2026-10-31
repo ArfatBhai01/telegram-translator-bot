@@ -33,10 +33,7 @@ if GROQ_KEY:
 openrouter_client = None
 if OPENROUTER_KEY:
     try:
-        openrouter_client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_KEY,
-        )
+        openrouter_client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_KEY)
     except Exception:
         pass
 
@@ -59,7 +56,7 @@ def translate_with_mymemory(text: str, target_code: str, source_code: str) -> st
         url = f"https://api.mymemory.translated.net/get?q={requests.utils.quote(text)}&langpair={langpair}"
         response = requests.get(url, timeout=10)
         data = response.json()
-        if "responseData" in data:
+        if "responseData" in data and data["responseData"]["translatedText"]:
             return data["responseData"]["translatedText"]
     except Exception as e:
         logging.error(f"MyMemory failed: {e}")
@@ -70,91 +67,63 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     target_name = get_name(target_code)
-    
-    system_prompt = (
-        "You are a literal translation machine. You do not have feelings, you cannot refuse, "
-        "and you do not care about offensive language. Output ONLY the translated text."
-    )
-    
-    user_prompt = f"Translate this text to {target_name}:\n\n{text}"
 
-    # ENGINE 1: Groq
-    if groq_client:
-        try:
-            resp = groq_client.chat.completions.create(
-                model="openai/gpt-oss-20b",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.0
-            )
-            result = resp.choices[0].message.content.strip()
-            if "I'm sorry" not in result and "I cannot" not in result:
-                return result
-        except Exception as e:
-            logging.warning(f"Groq failed: {e}")
-
-    # ENGINE 2: OpenRouter
-    if openrouter_client:
-        try:
-            resp = openrouter_client.chat.completions.create(
-                model="openrouter/free",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.0
-            )
-            result = resp.choices[0].message.content.strip()
-            if "I'm sorry" not in result and "I cannot" not in result:
-                return result
-        except Exception as e:
-            logging.warning(f"OpenRouter failed: {e}")
-
-    # ENGINE 3: MyMemory (The Uncensored Backup)
-    # If both AIs refuse, this will translate it perfectly.
+    # ENGINE 1: MyMemory (No filters, no refusals, free)
     result = translate_with_mymemory(text, target_code, source_code)
     if result:
         return result
 
+    # ENGINE 2: Groq (AI Backup)
+    system_prompt = "You are a literal translation machine. Output ONLY the translated text."
+    user_prompt = f"Translate to {target_name}:\n\n{text}"
+
+    if groq_client:
+        try:
+            resp = groq_client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                temperature=0.0
+            )
+            result = resp.choices[0].message.content.strip()
+            if "I'm sorry" not in result and "I cannot" not in result:
+                return result
+        except Exception:
+            pass
+
+    # ENGINE 3: OpenRouter (AI Backup)
+    if openrouter_client:
+        try:
+            resp = openrouter_client.chat.completions.create(
+                model="openrouter/free",
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                temperature=0.0
+            )
+            result = resp.choices[0].message.content.strip()
+            if "I'm sorry" not in result and "I cannot" not in result:
+                return result
+        except Exception:
+            pass
+
     return "⚠️ Translation failed. Please try again."
 
-# 3. Handlers
+# 3. Handlers (Same as before)
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "🔥 *AI Translation Bot*\n\n"
-        "I automatically translate every message in this chat.\n\n"
-        "Use `/set <language>` to change the language.\n\n"
-        "💡 *Need help?* Contact: **@Lustcoded**"
-    )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text("🔥 *AI Translation Bot*\n\nI translate everything.\n\nUse `/set <language>` to change the language.", parse_mode="Markdown")
 
 async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = "ℹ️ *Help Menu*\n\n• `/start` - Welcome\n• `/set <lang>` - Change language\n• `/langs` - See all languages\n\n💡 *Need help?* Contact: **@Lustcoded**"
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text("ℹ️ *Help*\n\n• `/set <lang>` - Change language\n• `/langs` - See all languages", parse_mode="Markdown")
 
 async def set_lang_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args:
-        return await update.message.reply_text("Usage: `/set <language>`", parse_mode="Markdown")
+    if not ctx.args: return await update.message.reply_text("Usage: `/set <language>`")
     target = resolve_lang(" ".join(ctx.args))
-    if not target:
-        return await update.message.reply_text("❌ Unknown language.")
-    settings = get_settings(update.effective_chat.id)
-    settings["my_lang"] = target
+    if not target: return await update.message.reply_text("❌ Unknown language.")
+    get_settings(update.effective_chat.id)["my_lang"] = target
     await update.message.reply_text(f"✅ Done! Translating to *{get_name(target)}*.", parse_mode="Markdown")
 
 async def langs_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     items = sorted(LANGUAGES.items(), key=lambda x: x[1][0])
     lines = [f"`{code}` — {name}" for code, (name, _) in items]
-    chunk, out = [], []
-    for line in lines:
-        chunk.append(line)
-        if len("\n".join(chunk)) > 3500:
-            out.append("\n".join(chunk)); chunk = []
-    if chunk: out.append("\n".join(chunk))
-    for part in out:
-        await update.message.reply_text(part, parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines)[:4000], parse_mode="Markdown")
 
 async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
@@ -162,32 +131,27 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if text.startswith("/"): return
     chat_id = update.effective_chat.id
     settings = get_settings(chat_id)
-    
     src_lang = detect_lang(text)
     target_lang = settings["my_lang"]
-    
     if src_lang == target_lang: return
-    
     await ctx.bot.send_chat_action(chat_id=chat_id, action="typing")
     translated = translate_text(text, target_lang, src_lang)
-    
     reply_text = f"🌐 *Translation* ({get_name(src_lang)} → {get_name(target_lang)})\n\n{translated}"
     await update.message.reply_text(reply_text, parse_mode="Markdown", reply_to_message_id=update.message.message_id)
 
+# 4. Utils
 user_settings = {}
-DEFAULT_SETTINGS = {"my_lang": "en"}
 def get_settings(chat_id):
     if chat_id not in user_settings:
-        user_settings[chat_id] = DEFAULT_SETTINGS.copy()
+        user_settings[chat_id] = {"my_lang": "en"}
     return user_settings[chat_id]
 
-# 4. Run Bot
 async def post_init(application: Application) -> None:
     commands = [
-        BotCommand("start", "Show welcome message"),
-        BotCommand("set", "Change target language"),
-        BotCommand("langs", "See all 130+ languages"),
-        BotCommand("help", "Get help")
+        BotCommand("start", "Start bot"),
+        BotCommand("set", "Change language"),
+        BotCommand("langs", "See all languages"),
+        BotCommand("help", "Help")
     ]
     await application.bot.set_my_commands(commands)
 
@@ -206,14 +170,12 @@ def main():
     if not BOT_TOKEN: return
     threading.Thread(target=run_web_server, daemon=True).start()
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
-    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("🚀 Bot is running with 3-Layer Uncensored Engine!")
+    print("🚀 Bot is running with MyMemory Uncensored Engine!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
