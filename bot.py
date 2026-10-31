@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 from langdetect import detect, DetectorFactory
 from languages import LANGUAGES, resolve_lang, get_name
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 # 1. Setup
 load_dotenv()
@@ -18,7 +18,6 @@ DetectorFactory.seed = 0
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-translator = Translator()
 
 # 2. Translation Engine
 def detect_lang(text: str) -> str:
@@ -37,9 +36,9 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     try:
-        # Googletrans translates literally, no safety filters
-        result = translator.translate(text, src=source_code, dest=target_code)
-        return result.text
+        # deep-translator uses Google's raw engine (no AI refusals, no daily limits)
+        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
+        return result
     except Exception as e:
         logging.error(f"Translation failed: {e}")
         return "⚠️ Translation failed. Please try again."
@@ -113,7 +112,7 @@ def main():
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Bot is running with Googletrans!")
+    print("🚀 Bot is running with deep-translator!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
