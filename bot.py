@@ -36,7 +36,7 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     try:
-        # deep-translator uses Google's raw engine (no AI refusals, no daily limits)
+        # deep-translator uses Google's raw engine (no AI refusals)
         result = GoogleTranslator(source=source_code, target=target_code).translate(text)
         return result
     except Exception as e:
