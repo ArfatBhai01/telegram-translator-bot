@@ -36,11 +36,12 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     try:
-        # translators library automatically handles all language codes
+        # Fix language codes for the translators library
         t_code = target_code.lower()
         if t_code == "zh-cn": t_code = "zh"
         if t_code == "zh-tw": t_code = "zh-TW"
         
+        # Try Google first
         result = ts.translate_text(text, translator='google', from_language=source_code, to_language=t_code)
         return result
     except Exception as e:
