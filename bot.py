@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# 2. Translation Engine (Direct Google Translate Endpoint)
+# 2. Translation Engine (Triple Fallback)
 def detect_lang(text: str) -> str:
     try:
         if len(text.split()) < 4:
@@ -31,45 +31,66 @@ def detect_lang(text: str) -> str:
     except Exception:
         return "en"
 
+def translate_google(text, src, tgt):
+    try:
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {"client": "gtx", "sl": src, "tl": tgt, "dt": "t", "q": text}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        r = requests.get(url, params=params, headers=headers, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            return "".join([item[0] for item in data[0] if item[0]])
+    except:
+        pass
+    return None
+
+def translate_microsoft(text, tgt):
+    try:
+        t_code = tgt.lower()
+        if t_code == "zh-cn": t_code = "zh-Hans"
+        if t_code == "zh-tw": t_code = "zh-Hant"
+        url = f"https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&to={t_code}"
+        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+        r = requests.post(url, headers=headers, json=[{"Text": text}], timeout=5)
+        if r.status_code == 200:
+            return r.json()[0]["translations"][0]["text"]
+    except:
+        pass
+    return None
+
+def translate_mymemory(text, src, tgt):
+    try:
+        url = f"https://api.mymemory.translated.net/get?q={requests.utils.quote(text)}&langpair={src}|{tgt}"
+        r = requests.get(url, timeout=5).json()
+        if "responseData" in r and r["responseData"]["translatedText"]:
+            # Ignore MyMemory's daily limit warning
+            if "MYMEMORY WARNING" not in r["responseData"]["translatedText"]:
+                return r["responseData"]["translatedText"]
+    except:
+        pass
+    return None
+
 def translate_text(text: str, target_code: str, source_code: str = "auto") -> str:
     if source_code == target_code:
         return text
         
-    try:
-        # Build the Google Translate URL
-        url = "https://translate.googleapis.com/translate_a/single"
-        params = {
-            "client": "gtx",
-            "sl": source_code,
-            "tl": target_code,
-            "dt": "t",
-            "q": text
-        }
-        
-        # These headers make Google think it's a real browser
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-            "Referer": "https://translate.google.com/"
-        }
-        
-        response = requests.get(url, params=params, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            # The translated text is buried in the nested JSON
-            translated = "".join([item[0] for item in data[0] if item[0]])
-            return translated
-        else:
-            logging.error(f"Google status code: {response.status_code}")
-            return "⚠️ Translation failed. Please try again."
-            
-    except Exception as e:
-        logging.error(f"Translation error: {e}")
-        return "⚠️ Translation failed. Please try again."
+    # Try 1: Google
+    result = translate_google(text, source_code, target_code)
+    if result: return result
+
+    # Try 2: Microsoft
+    result = translate_microsoft(text, target_code)
+    if result: return result
+
+    # Try 3: MyMemory
+    result = translate_mymemory(text, source_code, target_code)
+    if result: return result
+
+    return "⚠️ All engines blocked. Try again later."
 
 # 3. Handlers
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔥 *AI Translation Bot*\n\nI translate everything automatically!\n\nUse `/set <language>` to change the target language.\n\n💡 *Need help?* Contact: **@Lustcoded**", parse_mode="Markdown")
+    await update.message.reply_text("🔥 *AI Translation Bot*\n\nI translate everything.\n\nUse `/set <language>` to change the language.\n\n💡 *Need help?* Contact: **@Lustcoded**", parse_mode="Markdown")
 
 async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("ℹ️ *Help*\n\n• `/set <lang>` - Change language\n• `/langs` - See all languages", parse_mode="Markdown")
@@ -136,7 +157,7 @@ def main():
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Bot is running on Direct Google Translate Engine!")
+    print("🚀 Bot is running on Triple Fallback Engine!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
