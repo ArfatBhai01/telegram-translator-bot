@@ -36,7 +36,7 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     try:
-        # deep-translator directly calls Google Translate without safety filters
+        # deep-translator directly calls Google Translate (No filters)
         result = GoogleTranslator(source=source_code, target=target_code).translate(text)
         return result
     except Exception as e:
