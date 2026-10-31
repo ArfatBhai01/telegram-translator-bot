@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 from langdetect import detect, DetectorFactory
 from languages import LANGUAGES, resolve_lang, get_name
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 # 1. Setup
 load_dotenv()
@@ -18,9 +18,6 @@ DetectorFactory.seed = 0
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# Initialize Google Translator (No API key needed)
-translator = Translator()
 
 # 2. Translation Engine
 def detect_lang(text: str) -> str:
@@ -39,15 +36,11 @@ def translate_text(text: str, target_code: str, source_code: str = "auto") -> st
         return text
         
     try:
-        # Google translate uses different codes for some languages
-        g_target = target_code.lower()
-        if g_target == "zh-cn": g_target = "zh-cn"
-        
-        # Google Translate ignores safety filters completely.
-        result = translator.translate(text, src=source_code, dest=g_target)
-        return result.text
+        # deep-translator directly calls Google Translate without safety filters
+        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
+        return result
     except Exception as e:
-        logging.error(f"Google Translate failed: {e}")
+        logging.error(f"Translation failed: {e}")
         return "⚠️ Translation failed. Please try again."
 
 # 3. Handlers
@@ -119,7 +112,7 @@ def main():
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Bot is running with Google Translate (Uncensored)!")
+    print("🚀 Bot is running with deep-translator (Uncensored)!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
