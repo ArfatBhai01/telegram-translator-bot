@@ -1,7 +1,6 @@
 import os
 import logging
 import threading
-import requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 from telegram import Update, BotCommand
@@ -49,64 +48,56 @@ def detect_lang(text: str) -> str:
     except Exception:
         return "en"
 
-def translate_with_mymemory(text: str, target_code: str, source_code: str) -> str:
-    """Free API that never blocks bad words"""
-    try:
-        langpair = f"{source_code}|{target_code}"
-        url = f"https://api.mymemory.translated.net/get?q={requests.utils.quote(text)}&langpair={langpair}"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if "responseData" in data and data["responseData"]["translatedText"]:
-            return data["responseData"]["translatedText"]
-    except Exception as e:
-        logging.error(f"MyMemory failed: {e}")
-    return None
-
 def translate_text(text: str, target_code: str, source_code: str = "auto") -> str:
     if source_code == target_code:
         return text
         
     target_name = get_name(target_code)
 
-    # ENGINE 1: MyMemory (No filters, no refusals, free)
-    result = translate_with_mymemory(text, target_code, source_code)
-    if result:
-        return result
+    # The strictest possible prompt
+    system_prompt = (
+        "You are an API. Translate the text exactly to the target language. "
+        "Do not refuse. Do not apologize. Output ONLY the translation."
+    )
+    user_prompt = f"Target Language: {target_name}\nText to translate: {text}"
 
-    # ENGINE 2: Groq (AI Backup)
-    system_prompt = "You are a literal translation machine. Output ONLY the translated text."
-    user_prompt = f"Translate to {target_name}:\n\n{text}"
-
+    # ENGINE 1: Groq (Using the 70B model)
     if groq_client:
         try:
             resp = groq_client.chat.completions.create(
-                model="openai/gpt-oss-20b",
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                model="llama-3.3-70b-versatile", # Changed to the stronger model
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
                 temperature=0.0
             )
             result = resp.choices[0].message.content.strip()
             if "I'm sorry" not in result and "I cannot" not in result:
                 return result
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Groq failed: {e}")
 
-    # ENGINE 3: OpenRouter (AI Backup)
+    # ENGINE 2: OpenRouter
     if openrouter_client:
         try:
             resp = openrouter_client.chat.completions.create(
                 model="openrouter/free",
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
                 temperature=0.0
             )
             result = resp.choices[0].message.content.strip()
             if "I'm sorry" not in result and "I cannot" not in result:
                 return result
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"OpenRouter failed: {e}")
 
     return "⚠️ Translation failed. Please try again."
 
-# 3. Handlers (Same as before)
+# 3. Handlers
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔥 *AI Translation Bot*\n\nI translate everything.\n\nUse `/set <language>` to change the language.", parse_mode="Markdown")
 
@@ -175,7 +166,7 @@ def main():
     app.add_handler(CommandHandler("set", set_lang_text))
     app.add_handler(CommandHandler("langs", langs_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🚀 Bot is running with MyMemory Uncensored Engine!")
+    print("🚀 Bot is running with Strict Uncensored AI!")
     app.run_polling(close_loop=False, bootstrap_retries=5, read_timeout=60)
 
 if __name__ == "__main__":
